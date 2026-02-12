@@ -1,0 +1,15 @@
+__pycache__/
+.claude
+docs/conversations/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.venv/
+data/
+*.rtt
+*.rtt.json
+*.mp4
+*.mp3
+node_modules/
