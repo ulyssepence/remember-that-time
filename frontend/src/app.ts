@@ -412,8 +412,8 @@ function setupDragListeners() {
     if ((e.target as HTMLElement).closest(".top-bar")) return;
     if ((e.target as HTMLElement).closest(".overlay")) return;
     e.preventDefault();
-    panX += e.deltaX;
-    panY += e.deltaY;
+    panX -= e.deltaX;
+    panY -= e.deltaY;
     wrapPan();
     updateCanvasTransform();
   }, { passive: false });
@@ -552,6 +552,7 @@ async function init() {
     render();
   });
   collections = await fetchCollections();
+  activeCollections = new Set(collections.map(c => c.id));
   await loadInitialSegments();
 }
 
