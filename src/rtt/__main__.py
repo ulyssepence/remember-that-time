@@ -83,6 +83,7 @@ def main():
     p_batch.add_argument("--output-dir", "-o", type=Path, default=Path("."))
     p_batch.add_argument("--no-enrich", action="store_true")
     p_batch.add_argument("--collection", type=str, default="", help="Collection name (auto-derived from YouTube channel if omitted)")
+    p_batch.add_argument("--limit", type=int, default=None, help="Only process first N videos")
 
     args = parser.parse_args()
 
@@ -180,6 +181,8 @@ def main():
             if args.collection:
                 for j in jobs:
                     j.collection = args.collection
+        if args.limit:
+            jobs = jobs[:args.limit]
         if not jobs:
             print("No video jobs found.")
             sys.exit(1)

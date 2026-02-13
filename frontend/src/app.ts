@@ -248,11 +248,27 @@ function tileSize(cells: CellLayout[]): { w: number; h: number } {
   return { w: maxX, h: maxY };
 }
 
+function padItems(items: SegmentResult[], cols: number): SegmentResult[] {
+  if (items.length === 0) return items;
+  const minCells = cols * 3;
+  if (items.length >= minCells) return items;
+  const padded: SegmentResult[] = [];
+  while (padded.length < minCells) {
+    for (let i = 0; i < items.length && padded.length < minCells; i++) {
+      padded.push(items[i]);
+    }
+  }
+  return padded;
+}
+
 function tiledCards(items: SegmentResult[], cols: number, isSearch: boolean): string {
+  const originalLen = items.length;
+  const wasPadded = items.length < cols * 3;
+  items = padItems(items, cols);
   const cells = layoutCells(items, cols, isSearch);
   const tile = tileSize(cells);
-  const tilesX = 3;
-  const tilesY = 3;
+  const tilesX = Math.max(3, Math.ceil(window.innerWidth / tile.w) + 2);
+  const tilesY = Math.max(3, Math.ceil(window.innerHeight / tile.h) + 2);
   const isMobile = window.innerWidth < 768;
 
   const cards: string[] = [];
@@ -264,13 +280,12 @@ function tiledCards(items: SegmentResult[], cols: number, isSearch: boolean): st
         const y = ty * tile.h + c.y;
         const seg = items[i];
         cards.push(`
-          <div class="card" data-idx="${i}" style="position:absolute;left:${x}px;top:${y}px;width:${c.w - 4}px;height:${c.h - 4}px;">
+          <div class="card" data-idx="${i % originalLen}" style="position:absolute;left:${x}px;top:${y}px;width:${c.w - 4}px;height:${c.h - 4}px;">
             <div class="card-thumb" data-action="play">
               ${seg.frame_url ? `<img src="${seg.frame_url}" alt="" loading="lazy" />` : `<div class="card-placeholder"></div>`}
             </div>
-            <div class="card-overlay" data-action="${isMobile ? "play" : "similar"}" data-segment-id="${seg.segment_id}">
+            <div class="card-overlay" data-action="similar" data-segment-id="${seg.segment_id}">
               <span class="card-text">${esc(seg.transcript_raw.slice(0, 120))}${seg.transcript_raw.length > 120 ? "..." : ""}</span>
-              ${isMobile ? `<button class="similar-btn" data-action="similar" data-segment-id="${seg.segment_id}" title="Find similar">&#x2731;</button>` : ""}
             </div>
           </div>
         `);
@@ -282,13 +297,16 @@ function tiledCards(items: SegmentResult[], cols: number, isSearch: boolean): st
 
 function render() {
   const root = document.getElementById("root")!;
-  const items = displaySegments();
+  const rawItems = displaySegments();
   const isSearch = mode !== "browse";
-  const cols = Math.max(1, Math.ceil(Math.sqrt(items.length)));
+  const cols = Math.max(1, Math.ceil(Math.sqrt(rawItems.length)));
+  const items = padItems(rawItems, cols);
   const cells = layoutCells(items, cols, isSearch);
   const tile = tileSize(cells);
-  const totalW = tile.w * 3;
-  const totalH = tile.h * 3;
+  const tilesX = Math.max(3, Math.ceil(window.innerWidth / tile.w) + 2);
+  const tilesY = Math.max(3, Math.ceil(window.innerHeight / tile.h) + 2);
+  const totalW = tile.w * tilesX;
+  const totalH = tile.h * tilesY;
 
   root.innerHTML = `
     <div class="top-bar">
@@ -302,7 +320,7 @@ function render() {
     </div>
     <div class="viewport" id="viewport">
       <div class="canvas" id="canvas" style="width:${totalW}px;height:${totalH}px;transform:translate(${panX}px,${panY}px)">
-        ${items.length > 0 ? tiledCards(items, cols, isSearch) : ""}
+        ${rawItems.length > 0 ? tiledCards(rawItems, cols, isSearch) : ""}
         ${loading ? '<div class="status" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">Loading...</div>' : ""}
       </div>
     </div>
@@ -314,18 +332,20 @@ function render() {
 }
 
 function currentTile(): { w: number; h: number } {
-  const items = displaySegments();
-  if (items.length === 0) return { w: 1, h: 1 };
+  const rawItems = displaySegments();
+  if (rawItems.length === 0) return { w: 1, h: 1 };
   const isSearch = mode !== "browse";
-  const cols = Math.max(1, Math.ceil(Math.sqrt(items.length)));
+  const cols = Math.max(1, Math.ceil(Math.sqrt(rawItems.length)));
+  const items = padItems(rawItems, cols);
   return tileSize(layoutCells(items, cols, isSearch));
 }
 
 function centerCanvas() {
-  const items = displaySegments();
-  if (items.length === 0) return;
+  const rawItems = displaySegments();
+  if (rawItems.length === 0) return;
   const isSearch = mode !== "browse";
-  const cols = Math.max(1, Math.ceil(Math.sqrt(items.length)));
+  const cols = Math.max(1, Math.ceil(Math.sqrt(rawItems.length)));
+  const items = padItems(rawItems, cols);
   const cells = layoutCells(items, cols, isSearch);
   const tile = tileSize(cells);
   const first = cells[0];
@@ -345,10 +365,8 @@ function updateCanvasTransform() {
 
 function wrapPan() {
   const tile = currentTile();
-  while (panX > 0) panX -= tile.w;
-  while (panX < -2 * tile.w) panX += tile.w;
-  while (panY > 0) panY -= tile.h;
-  while (panY < -2 * tile.h) panY += tile.h;
+  panX = ((panX % tile.w) + tile.w) % tile.w - tile.w;
+  panY = ((panY % tile.h) + tile.h) % tile.h - tile.h;
 }
 
 function tickInertia() {
@@ -440,6 +458,7 @@ function bindEvents() {
     render();
     searchResults = await fetchSearch(query);
     loading = false;
+    filterOpen = false;
     render();
     centerCanvas();
   });
@@ -518,6 +537,20 @@ function bindEvents() {
 
 async function init() {
   setupDragListeners();
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (activeOverlay) { activeOverlay = null; render(); }
+      else if (filterOpen) { filterOpen = false; render(); }
+    }
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!filterOpen) return;
+    const panel = document.querySelector(".filter-panel");
+    const toggle = document.getElementById("filter-toggle");
+    if (panel?.contains(e.target as Node) || toggle?.contains(e.target as Node)) return;
+    filterOpen = false;
+    render();
+  });
   collections = await fetchCollections();
   await loadInitialSegments();
 }

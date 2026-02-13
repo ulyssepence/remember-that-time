@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "esbuild src/app.ts --bundle --outfile=dist/app.js --format=iife && cp src/style.css dist/style.css",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

@@ -47,7 +47,7 @@ class AssemblyAITranscriber:
 
     def transcribe_url(self, url: str, video_id: str) -> list[t.Segment]:
         config = self._aai.TranscriptionConfig(
-            speech_model=self._aai.SpeechModel.best,
+            speech_models=["universal-3-pro"],
             filter_profanity=False,
             speaker_labels=False,
             auto_chapters=False,
