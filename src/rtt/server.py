@@ -48,14 +48,26 @@ class CollectionsResponse(BaseModel):
     collections: list[CollectionInfo]
 
 
-def create_app(rtt_dir: Path, embedder: embed.Embedder | None = None) -> FastAPI:
+def _collect_rtt_files(paths: list[Path]) -> list[Path]:
+    result: list[Path] = []
+    for p in paths:
+        if p.is_dir():
+            result.extend(sorted(p.glob("*.rtt")))
+        elif p.suffix == ".rtt" and p.exists():
+            result.append(p)
+    return result
+
+
+def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = None) -> FastAPI:
     app = FastAPI(title="RTT Semantic Video Search")
     db = vector.Database.memory()
     _embedder = embedder or embed.OllamaEmbedder()
     videos: dict[str, dict] = {}
     frames_dir = Path(tempfile.mkdtemp(prefix="rtt_frames_"))
 
-    for rtt_path in sorted(rtt_dir.glob("*.rtt")):
+    if isinstance(rtt_paths, Path):
+        rtt_paths = [rtt_paths]
+    for rtt_path in _collect_rtt_files(rtt_paths):
         vid, segments, arrow_table = package.load(rtt_path)
         videos[vid.video_id] = {
             "title": vid.title,

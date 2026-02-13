@@ -2,7 +2,7 @@ import json
 import shutil
 from pathlib import Path
 
-from rtt import types as t, transcribe, enrich, embed, frames, package
+from rtt import types as t, transcribe, enrich, embed, frames, package, normalize
 
 
 def _load_status(video_path: Path) -> dict:
@@ -46,6 +46,7 @@ def process(
     if status.get("status") in ("new", "downloaded"):
         print(f"Transcribing {video_path}...")
         segments = transcriber.transcribe(video_path, vid_id)
+        segments = normalize.normalize(segments)
         status["segments"] = [
             {"segment_id": s.segment_id, "start": s.start_seconds,
              "end": s.end_seconds, "text": s.transcript_raw}
