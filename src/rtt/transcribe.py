@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from rtt import runtime, types as t
+from rtt import runtime, types as t, youtube
 
 
 @runtime_checkable
@@ -37,6 +37,23 @@ class WhisperTranscriber:
         if duration > 0:
             print()
         return segments
+
+
+class YouTubeTranscriber:
+    def transcribe(self, video_id: str) -> list[t.Segment] | None:
+        cues = youtube.RealDownloader.subtitle_cues(video_id)
+        if not cues:
+            return None
+        return [
+            t.Segment(
+                segment_id=f"{video_id}_{i:05d}",
+                video_id=video_id,
+                start_seconds=c.start_seconds,
+                end_seconds=c.end_seconds,
+                transcript_raw=c.text,
+            )
+            for i, c in enumerate(cues)
+        ]
 
 
 class AssemblyAITranscriber:

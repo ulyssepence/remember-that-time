@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional, Protocol, Sequence, Tuple
+from typing import Optional, Protocol, Tuple
 from urllib import parse as urlparse
 import uuid
 
@@ -48,6 +48,13 @@ def video_url(video_id: str, offset: Optional[util.Time] = None) -> str:
 
 
 @dataclass(frozen=True)
+class SubtitleCue:
+    start_seconds: float
+    end_seconds: float
+    text: str
+
+
+@dataclass(frozen=True)
 class Metadata:
     title: str
     author: Optional[str]
@@ -57,12 +64,6 @@ class Metadata:
 class Downloader(Protocol):
     def download_video(self, video_id: str, download_dir: Path) -> Path: ...
     def metadata(self, video_id: str) -> Metadata: ...
-    def subtitles(
-        self,
-        video_id: str,
-        start: Optional[util.Time] = None,
-        stop: Optional[util.Time] = None,
-    ) -> Optional[Sequence[str]]: ...
 
 
 def channel_video_ids(channel_url: str) -> list[dict]:
@@ -143,12 +144,7 @@ class RealDownloader:
         )
 
     @classmethod
-    def subtitles(
-        cls,
-        video_id: str,
-        start: Optional[util.Time] = None,
-        stop: Optional[util.Time] = None,
-    ) -> Optional[Sequence[str]]:
+    def subtitle_cues(cls, video_id: str) -> Optional[list[SubtitleCue]]:
         info = cls._fetch_info(video_id)
 
         def get_subtitles_vtt_url():
@@ -162,7 +158,6 @@ class RealDownloader:
             m3u8_url = (match or {}).get('url')
             if not m3u8_url:
                 return None
-
             m3u8 = httpx.get(m3u8_url).text
             return util.find(lambda l: l.startswith('https://www.youtube.com/api/'), m3u8.splitlines())
 
@@ -173,26 +168,19 @@ class RealDownloader:
         vtt_text = httpx.get(vtt_url).text
         vtt = webvtt.from_string(vtt_text)
 
-        return list(cls._subtitle_paragraphs(vtt, start, stop))
-
-    @classmethod
-    def _subtitle_paragraphs(
-        cls,
-        vtt: webvtt.WebVTT,
-        start: Optional[util.Time],
-        stop: Optional[util.Time],
-    ) -> Iterator[str]:
+        cues: list[SubtitleCue] = []
         for caption in vtt:
-            subtitle_start = cls._parse_vtt_time(caption.start)
-            subtitle_stop = cls._parse_vtt_time(caption.end)
-
-            if start and subtitle_stop < start:
+            text = " ".join(caption.text.splitlines()).strip()
+            if not text:
                 continue
-            if stop and stop < subtitle_start:
-                break
-
-            for line in caption.text.splitlines():
-                yield line
+            start = cls._parse_vtt_time(caption.start)
+            end = cls._parse_vtt_time(caption.end)
+            cues.append(SubtitleCue(
+                start_seconds=start.ms / 1000.0,
+                end_seconds=end.ms / 1000.0,
+                text=text,
+            ))
+        return cues if cues else None
 
     @classmethod
     def _parse_vtt_time(cls, t: str) -> util.Time:

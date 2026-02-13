@@ -62,7 +62,7 @@ def main():
     p_process.add_argument("--collection", type=str, default="", help="Collection name for this video")
 
     p_serve = sub.add_parser("serve")
-    p_serve.add_argument("directory", type=Path)
+    p_serve.add_argument("paths", nargs="+", type=Path, help=".rtt files or directories containing them")
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8000)
 
@@ -79,11 +79,15 @@ def main():
     p_channel.add_argument("url", type=str)
 
     p_batch = sub.add_parser("batch")
-    p_batch.add_argument("input", type=str, help="JSON file, directory of JSON files, or YouTube channel URL")
+    p_batch.add_argument("inputs", nargs="+", type=str, help="JSON files, directories of JSON files, or YouTube channel URLs")
     p_batch.add_argument("--output-dir", "-o", type=Path, default=Path("."))
     p_batch.add_argument("--no-enrich", action="store_true")
     p_batch.add_argument("--collection", type=str, default="", help="Collection name (auto-derived from YouTube channel if omitted)")
     p_batch.add_argument("--limit", type=int, default=None, help="Only process first N videos")
+    p_batch.add_argument("--transcriptions", type=int, default=20, help="Max concurrent transcriptions (default: 20)")
+    p_batch.add_argument("--enrichments", type=int, default=10, help="Max concurrent enrichments (default: 10)")
+    p_batch.add_argument("--embeddings", type=int, default=3, help="Max concurrent embeddings (default: 3)")
+    p_batch.add_argument("--frames", type=int, default=3, help="Max concurrent frame extractions — each downloads a full video to disk (default: 3)")
 
     args = parser.parse_args()
 
@@ -112,7 +116,7 @@ def main():
         runtime.require(needs_ollama=True)
         import uvicorn
         from rtt import server
-        app = server.create_app(args.directory)
+        app = server.create_app(args.paths)
         uvicorn.run(app, host=args.host, port=args.port)
 
     elif args.command == "transcribe":
@@ -153,41 +157,51 @@ def main():
         )
         import asyncio, json
         from rtt import batch, types as t_mod
-        if _is_url(args.input) and "youtube.com/" in args.input:
-            from rtt import youtube
-            entries = youtube.channel_video_ids(args.input)
-            print(f"Found {len(entries)} videos")
-            col = args.collection or args.input.rstrip("/").split("/")[-1].lstrip("@")
-            jobs = [
-                t_mod.VideoJob(
-                    video_id=e["id"],
-                    title=e["title"],
-                    source_url=youtube.video_url(e["id"]),
-                    page_url=youtube.video_url(e["id"]),
-                    collection=col,
+        jobs = []
+        for inp in args.inputs:
+            if _is_url(inp) and "youtube.com/" in inp:
+                from rtt import youtube
+                entries = youtube.channel_video_ids(inp)
+                print(f"Found {len(entries)} videos from {inp}")
+                col = args.collection or inp.rstrip("/").split("/")[-1].lstrip("@")
+                jobs.extend(
+                    t_mod.VideoJob(
+                        video_id=e["id"],
+                        title=e["title"],
+                        source_url=youtube.video_url(e["id"]),
+                        page_url=youtube.video_url(e["id"]),
+                        collection=col,
+                    )
+                    for e in entries
                 )
-                for e in entries
-            ]
-        else:
-            input_path = Path(args.input)
-            if input_path.is_dir():
-                raw = []
-                for f in sorted(input_path.glob("*.json")):
-                    raw.extend(json.loads(f.read_text()) if isinstance(json.loads(f.read_text()), list) else [json.loads(f.read_text())])
             else:
-                data = json.loads(input_path.read_text())
-                raw = data if isinstance(data, list) else [data]
-            jobs = [t_mod.VideoJob(**j) for j in raw]
-            if args.collection:
-                for j in jobs:
-                    j.collection = args.collection
+                input_path = Path(inp)
+                raw = []
+                if input_path.is_dir():
+                    for f in sorted(input_path.glob("*.json")):
+                        data = json.loads(f.read_text())
+                        raw.extend(data if isinstance(data, list) else [data])
+                else:
+                    data = json.loads(input_path.read_text())
+                    raw.extend(data if isinstance(data, list) else [data])
+                for j in raw:
+                    job = t_mod.VideoJob(**j)
+                    if args.collection:
+                        job.collection = args.collection
+                    jobs.append(job)
         if args.limit:
             jobs = jobs[:args.limit]
         if not jobs:
             print("No video jobs found.")
             sys.exit(1)
         print(f"Processing {len(jobs)} videos in batch mode...")
-        asyncio.run(batch.process_batch(jobs, args.output_dir, skip_enrich=args.no_enrich))
+        asyncio.run(batch.process_batch(
+            jobs, args.output_dir, skip_enrich=args.no_enrich,
+            concurrency_transcribe=args.transcriptions,
+            concurrency_enrich=args.enrichments,
+            concurrency_embed=args.embeddings,
+            concurrency_frames=args.frames,
+        ))
 
     else:
         parser.print_help()
