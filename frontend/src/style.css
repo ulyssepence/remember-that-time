@@ -100,6 +100,22 @@ body {
 
 .filter-btn:hover { color: #ccc; }
 
+.map-btn {
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #666;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.5rem 0.6rem;
+  transition: color 0.2s;
+}
+
+.map-btn:hover { color: #ccc; }
+.map-btn.active { color: #e0c050; border-color: #555; }
+
 /* --- Filter panel --- */
 
 .filter-panel {
@@ -350,6 +366,16 @@ body {
 }
 
 .overlay-source:hover { color: #ccc; }
+
+/* --- Map canvas --- */
+
+#map-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
 
 /* --- Status --- */
 

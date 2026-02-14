@@ -1,8 +1,12 @@
+import os
+os.environ.setdefault("NUMBA_NUM_THREADS", "1")
+
 import tempfile
 import zipfile
 from pathlib import Path
 
 import httpx
+import numpy as np
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -46,6 +50,18 @@ class CollectionInfo(BaseModel):
 
 class CollectionsResponse(BaseModel):
     collections: list[CollectionInfo]
+
+
+class MapPoint(BaseModel):
+    segment_id: str
+    x: float
+    y: float
+    frame_url: str | None = None
+    collection: str = ""
+
+
+class MapResponse(BaseModel):
+    points: list[MapPoint]
 
 
 def _collect_rtt_files(paths: list[Path]) -> list[Path]:
@@ -215,5 +231,45 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             for col_id, info in sorted(col_data.items())
         ]
         return CollectionsResponse(collections=result)
+
+    _map_cache: list[MapPoint] | None = None
+
+    @app.get("/map", response_model=MapResponse)
+    def map_points():
+        nonlocal _map_cache
+        if _map_cache is not None:
+            return MapResponse(points=_map_cache)
+
+        import umap
+
+        table = db._table.to_arrow()
+        embeddings = table.column("text_embedding").to_pylist()
+        segment_ids = table.column("segment_id").to_pylist()
+        video_ids = table.column("video_id").to_pylist()
+        frame_paths = table.column("frame_path").to_pylist()
+
+        mat = np.array(embeddings, dtype=np.float32)
+        coords = umap.UMAP(n_components=2, metric="cosine", random_state=42).fit_transform(mat)
+        mn = coords.min(axis=0)
+        mx = coords.max(axis=0)
+        rng = mx - mn
+        rng[rng == 0] = 1.0
+        coords = (coords - mn) / rng
+
+        points = []
+        for i, sid in enumerate(segment_ids):
+            vid_id = video_ids[i]
+            vid_info = videos.get(vid_id, {})
+            fp = frame_paths[i]
+            frame_url = f"/frames/{vid_id}/{Path(fp).name}" if fp else None
+            points.append(MapPoint(
+                segment_id=sid,
+                x=float(coords[i, 0]),
+                y=float(coords[i, 1]),
+                frame_url=frame_url,
+                collection=vid_info.get("collection", ""),
+            ))
+        _map_cache = points
+        return MapResponse(points=points)
 
     return app
