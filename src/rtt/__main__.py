@@ -51,6 +51,7 @@ def _resolve_local(raw_args: list[str]) -> tuple[list[tuple[Path, str]], list[st
 
 def main():
     parser = argparse.ArgumentParser(prog="rtt")
+    parser.add_argument("--ollama-url", type=str, default=None, help="Ollama API URL (default: $RTT_OLLAMA_URL or http://localhost:11434)")
     sub = parser.add_subparsers(dest="command")
 
     p_process = sub.add_parser("process")
@@ -92,6 +93,8 @@ def main():
     args = parser.parse_args()
 
     from rtt import runtime
+    if args.ollama_url:
+        runtime.OLLAMA_URL = args.ollama_url
 
     if args.command == "process":
         runtime.require(needs_ffmpeg=True, needs_ollama=True, needs_anthropic=not args.no_enrich)

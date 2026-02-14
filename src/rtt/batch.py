@@ -293,9 +293,22 @@ async def process_batch(
     for _ in range(concurrency_frames):
         workers.append(asyncio.create_task(frames_worker()))
 
+    failed_ids: set[str] = set()
+    if fail_path.exists():
+        for line in fail_path.read_text().splitlines():
+            try:
+                failed_ids.add(json.loads(line)["video_id"])
+            except (json.JSONDecodeError, KeyError):
+                pass
+        if failed_ids:
+            print(f"Skipping {len(failed_ids)} previously failed videos from {fail_path}")
+
     skipped = 0
     deferred_new = []
     for job in jobs:
+        if job.video_id in failed_ids:
+            skipped += 1
+            continue
         rtt_path = output_dir / f"{job.video_id}.rtt"
         if rtt_path.exists():
             print(f"[{job.video_id}] Already packaged, skipping")
