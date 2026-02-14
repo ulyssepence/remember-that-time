@@ -1,14 +1,14 @@
-import tempfile
+import time
 import zipfile
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from rtt import embed, package, vector
+from rtt import embed, package, types as t, vector
 
 
 class SegmentResult(BaseModel):
@@ -63,8 +63,10 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
     db = vector.Database.memory()
     _embedder = embedder or embed.OllamaEmbedder()
     videos: dict[str, dict] = {}
-    frames_dir = Path(tempfile.mkdtemp(prefix="rtt_frames_"))
+    rtt_paths_by_video: dict[str, Path] = {}
 
+    t0 = time.monotonic()
+    all_segments: list[t.Segment] = []
     if isinstance(rtt_paths, Path):
         rtt_paths = [rtt_paths]
     for rtt_path in _collect_rtt_files(rtt_paths):
@@ -83,22 +85,16 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             "collection": vid.collection,
             "local_dir": rtt_path.parent,
         }
+        rtt_paths_by_video[vid.video_id] = rtt_path
 
-        seg_objects = []
         for seg, emb in zip(segments, embeddings):
             seg.text_embedding = emb
-            seg_objects.append(seg)
-        db.add(seg_objects)
+            all_segments.append(seg)
 
-        vid_frames = frames_dir / vid.video_id
-        vid_frames.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(rtt_path, "r") as zf:
-            for name in zf.namelist():
-                if name.startswith("frames/") and name.endswith(".jpg"):
-                    data = zf.read(name)
-                    (vid_frames / Path(name).name).write_bytes(data)
-
-    app.mount("/frames", StaticFiles(directory=str(frames_dir)), name="frames")
+    t_load = time.monotonic()
+    print(f"Parsed {len(videos)} files in {(t_load - t0) * 1000:.0f}ms")
+    db.add(all_segments)
+    print(f"Indexed {len(all_segments)} segments in {(time.monotonic() - t_load) * 1000:.0f}ms")
 
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
@@ -126,6 +122,22 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             page_url=vid_info.get("page_url"),
             collection=vid_info.get("collection", ""),
             score=score,
+        )
+
+    @app.get("/frames/{video_id}/{filename}")
+    def frame(video_id: str, filename: str):
+        rtt_path = rtt_paths_by_video.get(video_id)
+        if not rtt_path:
+            raise HTTPException(status_code=404, detail="Video not found")
+        try:
+            with zipfile.ZipFile(rtt_path, "r") as zf:
+                data = zf.read(f"frames/{filename}")
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Frame not found")
+        return Response(
+            content=data,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
     @app.get("/video/{video_id}")
