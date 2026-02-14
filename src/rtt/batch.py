@@ -7,7 +7,12 @@ from pathlib import Path
 
 import httpx
 
-from rtt import types as t, transcribe, enrich, embed, frames, package, youtube, normalize
+from rtt import types as t, transcribe, enrich, embed, frames, package, youtube, normalize, hls
+
+
+def _is_m3u8(url: str) -> bool:
+    return ".m3u8" in url
+
 
 DEFAULT_TRANSCRIBE_CONCURRENCY = 20
 DEFAULT_ENRICH_CONCURRENCY = 10
@@ -123,6 +128,13 @@ async def process_batch(
                             youtube.RealDownloader.download_audio, vid, output_dir,
                         )
                         dl_path.rename(audio_path)
+                        transcribe_source = str(audio_path)
+                    elif _is_m3u8(j.job.source_url):
+                        print(f"[{vid}] Downloading audio from m3u8...")
+                        dl = await asyncio.to_thread(
+                            hls.download, j.job.source_url, audio_path,
+                        )
+                        audio_path = dl
                         transcribe_source = str(audio_path)
                     else:
                         transcribe_source = j.job.source_url
@@ -241,12 +253,29 @@ async def process_batch(
                         frames.extract, video_path, timestamps, fd,
                     )
                     video_path.unlink(missing_ok=True)
+                elif _is_m3u8(j.job.source_url):
+                    print(f"[{vid}] Downloading video for frames...")
+                    dl = await asyncio.to_thread(
+                        hls.download, j.job.source_url, video_path, False,
+                    )
+                    frame_paths = await asyncio.to_thread(
+                        frames.extract, dl, timestamps, fd,
+                    )
+                    dl.unlink(missing_ok=True)
                 else:
                     print(f"[{vid}] Extracting remote frames...")
                     frame_paths = await frames.extract_remote(
                         j.job.source_url, timestamps, fd,
                     )
                 print(f"[{vid}] Frames done in {time.monotonic() - t0:.0f}s (waited {waited:.0f}s)")
+                succeeded = [fp for fp in frame_paths if fp]
+                if not succeeded:
+                    await _log_failure(j.job, "No frames extracted")
+                    _cleanup(output_dir, vid)
+                    video_path.unlink(missing_ok=True)
+                    print(f"[{vid}] FAILED: no frames extracted")
+                    q_frames.task_done()
+                    continue
                 for seg, fp in zip(j.segments, frame_paths):
                     seg.frame_path = f"frames/{fp.name}" if fp else ""
 
