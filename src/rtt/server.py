@@ -109,6 +109,10 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
     t_load = time.monotonic()
     print(f"Loaded {len(videos)} files, {total_segments} segments in {(t_load - t0) * 1000:.0f}ms, RSS={_mem_mb()}MB")
 
+    db._ensure_merged()
+    t_merge = time.monotonic()
+    print(f"Merged search index in {(t_merge - t_load) * 1000:.0f}ms, RSS={_mem_mb()}MB")
+
     frontend_index = Path(__file__).parent.parent.parent / "frontend" / "index.html"
 
     _http_client = httpx.Client(follow_redirects=True, timeout=30)
