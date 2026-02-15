@@ -401,8 +401,8 @@ function tickInertia() {
   if (Math.abs(velX) < 0.5 && Math.abs(velY) < 0.5) return;
   velX *= 0.92;
   velY *= 0.92;
-  panX -= velX;
-  panY -= velY;
+  panX += velX;
+  panY += velY;
   wrapPan();
   updateCanvasTransform();
   inertiaRaf = requestAnimationFrame(tickInertia);
@@ -584,7 +584,6 @@ async function init() {
   });
   document.addEventListener("pointerdown", (e) => {
     if (!filterOpen) return;
-    if ((e.target as HTMLElement).closest(".overlay")) return;
     const panel = document.querySelector(".filter-panel");
     const toggle = document.getElementById("filter-toggle");
     if (panel?.contains(e.target as Node) || toggle?.contains(e.target as Node)) return;
