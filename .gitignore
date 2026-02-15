@@ -5,6 +5,7 @@ docs/conversations/
 .env
 *.egg-info/
 dist/
+frontend/static/app.js
 build/
 .venv/
 data/

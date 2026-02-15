@@ -48,6 +48,7 @@ let loading = false;
 let collections: CollectionInfo[] = [];
 let activeCollections: Set<string> = new Set();
 let filterOpen = false;
+let aboutOpen = false;
 let shuffleOrder: number[] = [];
 
 let panX = 0;
@@ -93,7 +94,7 @@ function collectionParam(): string {
 }
 
 async function fetchSegments(offset: number, limit: number): Promise<SegmentsResponse> {
-  const resp = await fetch(`/segments?offset=${offset}&limit=${limit}${collectionParam()}`);
+  const resp = await fetch(`/static/segments?offset=${offset}&limit=${limit}${collectionParam()}`);
   return resp.json();
 }
 
@@ -171,6 +172,23 @@ function renderFilterPanel(): string {
           <span class="filter-count">${c.video_count} videos, ${c.segment_count} segments</span>
         </label>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderAboutOverlay(): string {
+  if (!aboutOpen) return "";
+  return `
+    <div class="about-overlay" id="about-overlay">
+      <div class="about-content">
+        <button class="about-close" id="close-about">&times;</button>
+        <h2>About RTT</h2>
+        <p>RTT (Remember That Time) is a semantic video search engine over thousands of moments from different videos. You can enter search terms at the top and find videos where similar content is present in a video. Try searching “What should I do with my life?” or “alone in the wilderness”</p>
+        <p>Browse the collection by dragging the canvas. Tap on the text (large screens) or on the button on each frame to find moments from videos that are similar. Tap on the video to play that part of the video.</p>
+        <p>Written by <a target="_blank" href="https://ulyssepence.com">Ulysse Pence</a>.</p>
+        <p><a target="_blank" href="https://github.com/ulyssepence/rtt">Source</a></p>
+        <p><a target="_blank" href="https://ulyssepence.com/blog/post/remember-that-time-semantic-video-search">Technical write-up</a></p>
+      </div>
     </div>
   `;
 }
@@ -315,15 +333,17 @@ function render() {
         ${query || isSearch ? `<button type="button" class="clear-btn" id="clear-search">&times;</button>` : ""}
         <button type="submit">Search</button>
         <button type="button" class="filter-btn" id="filter-toggle" title="Filter collections">&#x25A7;</button>
+        <button type="button" class="about-btn" id="about-toggle" title="About RTT">?</button>
       </form>
       ${renderFilterPanel()}
     </div>
     <div class="viewport" id="viewport">
       <div class="canvas" id="canvas" style="width:${totalW}px;height:${totalH}px;transform:translate(${panX}px,${panY}px)">
         ${rawItems.length > 0 ? tiledCards(rawItems, cols, isSearch) : ""}
-        ${loading ? '<div class="status" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">Loading...</div>' : ""}
+        ${loading ? '<div class="loading-indicator"><div class="spinner"></div><div class="loading-text">Searching...</div></div>' : ""}
       </div>
     </div>
+    ${renderAboutOverlay()}
     ${renderVideoOverlay()}
   `;
 
@@ -357,6 +377,13 @@ function centerCanvas() {
   updateCanvasTransform();
 }
 
+function closeOverlay() {
+  document.querySelectorAll("video").forEach(v => (v as HTMLVideoElement).pause());
+  document.querySelectorAll("iframe").forEach(f => f.remove());
+  activeOverlay = null;
+  render();
+}
+
 function updateCanvasTransform() {
   const canvas = document.getElementById("canvas");
   if (!canvas) return;
@@ -374,8 +401,8 @@ function tickInertia() {
   if (Math.abs(velX) < 0.5 && Math.abs(velY) < 0.5) return;
   velX *= 0.92;
   velY *= 0.92;
-  panX += velX;
-  panY += velY;
+  panX -= velX;
+  panY -= velY;
   wrapPan();
   updateCanvasTransform();
   inertiaRaf = requestAnimationFrame(tickInertia);
@@ -412,8 +439,8 @@ function setupDragListeners() {
     if ((e.target as HTMLElement).closest(".top-bar")) return;
     if ((e.target as HTMLElement).closest(".overlay")) return;
     e.preventDefault();
-    panX += e.deltaX;
-    panY += e.deltaY;
+    panX -= e.deltaX;
+    panY -= e.deltaY;
     wrapPan();
     updateCanvasTransform();
   }, { passive: false });
@@ -425,6 +452,7 @@ function bindCanvasDrag() {
 
   viewport.addEventListener("pointerdown", (e) => {
     if ((e.target as HTMLElement).closest(".top-bar")) return;
+    if ((e.target as HTMLElement).closest(".overlay")) return;
     e.preventDefault();
     cancelAnimationFrame(inertiaRaf);
     velX = 0;
@@ -476,6 +504,19 @@ function bindEvents() {
     render();
   });
 
+  document.getElementById("about-toggle")?.addEventListener("click", () => {
+    aboutOpen = true;
+    render();
+  });
+
+  document.getElementById("about-overlay")?.addEventListener("pointerdown", (e) => {
+    if ((e.target as HTMLElement).id === "about-overlay") { aboutOpen = false; render(); }
+  });
+  document.getElementById("close-about")?.addEventListener("click", () => {
+    aboutOpen = false;
+    render();
+  });
+
   document.querySelectorAll(".filter-item input").forEach(cb => {
     cb.addEventListener("change", async (e) => {
       const el = e.target as HTMLInputElement;
@@ -523,15 +564,12 @@ function bindEvents() {
     if (videoEl && activeOverlay) {
       const seekTo = activeOverlay.start_seconds;
       videoEl.addEventListener("loadedmetadata", () => { videoEl.currentTime = seekTo; }, { once: true });
-      new (window as any).Plyr(videoEl);
     }
 
     document.getElementById("overlay")?.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).id === "overlay") { activeOverlay = null; render(); }
+      if (!(e.target as HTMLElement).closest(".overlay-content")) { closeOverlay(); }
     });
-    document.getElementById("close-overlay")?.addEventListener("click", () => {
-      activeOverlay = null; render();
-    });
+    document.getElementById("close-overlay")?.addEventListener("click", closeOverlay);
   }
 }
 
@@ -539,12 +577,14 @@ async function init() {
   setupDragListeners();
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (activeOverlay) { activeOverlay = null; render(); }
+      if (aboutOpen) { aboutOpen = false; render(); }
+      else if (activeOverlay) { closeOverlay(); }
       else if (filterOpen) { filterOpen = false; render(); }
     }
   });
   document.addEventListener("pointerdown", (e) => {
     if (!filterOpen) return;
+    if ((e.target as HTMLElement).closest(".overlay")) return;
     const panel = document.querySelector(".filter-panel");
     const toggle = document.getElementById("filter-toggle");
     if (panel?.contains(e.target as Node) || toggle?.contains(e.target as Node)) return;

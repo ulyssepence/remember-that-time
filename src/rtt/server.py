@@ -109,10 +109,6 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
     t_load = time.monotonic()
     print(f"Loaded {len(videos)} files, {total_segments} segments in {(t_load - t0) * 1000:.0f}ms, RSS={_mem_mb()}MB")
 
-    frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
-    if frontend_dist.exists():
-        app.mount("/static", StaticFiles(directory=str(frontend_dist)), name="static")
-
     frontend_index = Path(__file__).parent.parent.parent / "frontend" / "index.html"
 
     _http_client = httpx.Client(follow_redirects=True, timeout=30)
@@ -121,7 +117,7 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
         vid_id = r["video_id"]
         vid_info = videos.get(vid_id, {})
         frame_path = r.get("frame_path", "")
-        frame_url = f"/frames/{vid_id}/{Path(frame_path).name}" if frame_path else None
+        frame_url = f"/static/frames/{vid_id}/{Path(frame_path).name}" if frame_path else None
         return SegmentResult(
             video_id=vid_id,
             segment_id=r["segment_id"],
@@ -137,7 +133,7 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             score=score,
         )
 
-    @app.get("/frames/{video_id}/{filename}")
+    @app.get("/static/frames/{video_id}/{filename}")
     def frame(video_id: str, filename: str):
         rtt_path = rtt_paths_by_video.get(video_id)
         if not rtt_path:
@@ -214,6 +210,7 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
         return SearchResponse(query=q, results=results)
 
     @app.get("/segments", response_model=SegmentsResponse)
+    @app.get("/static/segments", response_model=SegmentsResponse)
     def segments(
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=200),
@@ -240,5 +237,9 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             for col_id, info in sorted(col_data.items())
         ]
         return CollectionsResponse(collections=result)
+
+    frontend_static = Path(__file__).parent.parent.parent / "frontend" / "static"
+    if frontend_static.exists():
+        app.mount("/static", StaticFiles(directory=str(frontend_static)), name="static")
 
     return app

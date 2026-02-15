@@ -10,4 +10,4 @@ tests/
 *.rtt
 *.rtt.json
 frontend/node_modules
-frontend/dist
+frontend/static/app.js

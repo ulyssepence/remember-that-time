@@ -142,6 +142,7 @@ body {
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
+  touch-action: none;
 }
 
 .viewport:active { cursor: grabbing; }
@@ -268,8 +269,8 @@ body {
 
 .close-btn {
   position: absolute;
-  top: -0.5rem;
-  right: -0.5rem;
+  top: 0.5rem;
+  right: 0.5rem;
   background: none;
   border: none;
   color: #666;
@@ -392,9 +393,9 @@ body {
   border: 1px solid #333;
   border-radius: 4px;
   color: #666;
-  font-size: 0.85rem;
+  font-size: 1rem;
   cursor: pointer;
-  padding: 0.5rem 0.65rem;
+  padding: 0.5rem 0.6rem;
   transition: color 0.2s;
   font-weight: 500;
 }
