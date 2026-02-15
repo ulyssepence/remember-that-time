@@ -131,6 +131,22 @@ class Database:
             for i in range(table.num_rows)
         ]
 
+    def video_segments(self, video_id: str) -> list[dict]:
+        table = self._ensure_merged()
+        if table is None:
+            return []
+        mask = pyarrow.compute.equal(table.column("video_id"), video_id)
+        filtered = table.filter(mask)
+        if filtered.num_rows == 0:
+            return []
+        indices = pyarrow.compute.sort_indices(filtered.column("start_seconds"))
+        filtered = filtered.take(indices)
+        names = [f.name for f in filtered.schema if f.name != "text_embedding"]
+        return [
+            {name: filtered.column(name)[i].as_py() for name in names}
+            for i in range(filtered.num_rows)
+        ]
+
     def count(self, collections: list[str] | None = None) -> int:
         table = self._ensure_merged()
         if table is None:

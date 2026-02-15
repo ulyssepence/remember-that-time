@@ -216,6 +216,17 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
         results = [_to_result(r, r.get("_distance", 0.0)) for r in raw]
         return SearchResponse(query=q, results=results)
 
+    @app.get("/static/video/{video_id}/segments")
+    def video_segments(video_id: str):
+        if video_id not in videos:
+            raise HTTPException(status_code=404, detail="Video not found")
+        rows = db.video_segments(video_id)
+        results = [_to_result(r) for r in rows]
+        return JSONResponse(
+            content=[r.model_dump() for r in results],
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     @app.get("/segments", response_model=SegmentsResponse)
     @app.get("/static/segments", response_model=SegmentsResponse)
     def segments(

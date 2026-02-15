@@ -228,18 +228,13 @@ body {
   height: 1.6rem;
   border-radius: 50%;
   cursor: pointer;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity 0.15s;
 }
 
-.card:hover .similar-btn { opacity: 1; }
-.similar-btn:hover { color: #fff; background: rgba(0,0,0,0.8); }
-
 @media (max-width: 767px) {
-  .similar-btn { opacity: 1; }
+  .similar-btn { display: flex; }
 }
 
 /* --- Video overlay --- */
@@ -285,6 +280,7 @@ body {
 .overlay-player {
   flex: 0 0 85%;
   min-width: 0;
+  align-self: center;
 }
 
 .overlay-player video {
@@ -310,9 +306,14 @@ body {
 .overlay-info {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   padding-top: 0.5rem;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+
+.overlay-info::-webkit-scrollbar { display: none; }
 
 .overlay-title {
   font-size: 1.1rem;
@@ -343,14 +344,29 @@ body {
   margin-bottom: 0.5rem;
 }
 
-.overlay-source {
-  font-size: 0.8rem;
-  color: #666;
-  text-decoration: none;
-  transition: color 0.2s;
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
-.overlay-source:hover { color: #ccc; }
+.overlay-action-btn {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #999;
+  text-decoration: none;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0.3rem 0.6rem;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.overlay-action-btn:hover {
+  color: #fff;
+  border-color: #555;
+}
 
 /* --- Loading spinner --- */
 
@@ -477,7 +493,8 @@ body {
   }
 
   .overlay-info {
-    padding: 0 0.25rem 1rem;
+    padding: 0 0.5rem 1rem;
+    overflow-y: visible;
   }
 
   .close-btn {

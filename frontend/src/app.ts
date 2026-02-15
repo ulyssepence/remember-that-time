@@ -1,3 +1,19 @@
+declare namespace YT {
+  class Player {
+    constructor(elementId: string, options: {
+      events?: {
+        onReady?: (event: { target: Player }) => void;
+        onStateChange?: (event: { data: number }) => void;
+      };
+    });
+    getCurrentTime(): number;
+    seekTo(seconds: number, allowSeekAhead: boolean): void;
+    destroy(): void;
+  }
+  enum PlayerState { PLAYING = 1 }
+}
+interface Window { onYouTubeIframeAPIReady?: () => void; }
+
 interface SegmentResult {
   video_id: string;
   segment_id: string;
@@ -42,6 +58,8 @@ let mode: Mode = "browse";
 let segments: SegmentResult[] = [];
 let searchResults: SegmentResult[] = [];
 let activeOverlay: SegmentResult | null = null;
+let overlaySegments: SegmentResult[] = [];
+let overlayActiveSegment: SegmentResult | null = null;
 let query = "";
 let browseOffset = 0;
 let browseTotal = 0;
@@ -51,6 +69,10 @@ let activeCollections: Set<string> = new Set();
 let filterOpen = false;
 let aboutOpen = false;
 let shuffleOrder: number[] = [];
+let ytPlayer: YT.Player | null = null;
+let ytPollInterval: number | null = null;
+let ytApiReady = false;
+let ytApiPromise: Promise<void> | null = null;
 
 let panX = 0;
 let panY = 0;
@@ -89,6 +111,42 @@ function youtubeVideoId(url: string): string | null {
   return m ? m[1] : null;
 }
 
+function loadYTApi(): Promise<void> {
+  if (ytApiReady) return Promise.resolve();
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise<void>((resolve) => {
+    window.onYouTubeIframeAPIReady = () => { ytApiReady = true; resolve(); };
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  });
+  return ytApiPromise;
+}
+
+function updateOverlaySegment(currentTime: number): void {
+  if (overlaySegments.length === 0) return;
+  let match: SegmentResult | null = null;
+  for (const seg of overlaySegments) {
+    if (currentTime >= seg.start_seconds && currentTime < seg.end_seconds) { match = seg; break; }
+  }
+  if (!match) {
+    let best = overlaySegments[0];
+    let bestDist = Math.abs(currentTime - best.start_seconds);
+    for (const seg of overlaySegments) {
+      const d = Math.abs(currentTime - seg.start_seconds);
+      if (d < bestDist) { best = seg; bestDist = d; }
+    }
+    match = best;
+  }
+  if (match && match.segment_id !== overlayActiveSegment?.segment_id) {
+    overlayActiveSegment = match;
+    const timeEl = document.getElementById("overlay-time");
+    const transcriptEl = document.getElementById("overlay-transcript");
+    if (timeEl) timeEl.textContent = `${formatTime(match.start_seconds)} — ${formatTime(match.end_seconds)}`;
+    if (transcriptEl) transcriptEl.textContent = match.transcript_raw;
+  }
+}
+
 function collectionParam(): string {
   if (activeCollections.size === 0) return "";
   return `&collections=${[...activeCollections].join(",")}`;
@@ -111,6 +169,12 @@ async function fetchSimilar(segmentId: string, n = 50): Promise<SegmentResult[]>
   if (!resp.ok) return [];
   const data: SearchResponse = await resp.json();
   return data.results;
+}
+
+async function fetchVideoSegments(videoId: string): Promise<SegmentResult[]> {
+  const resp = await fetch(`/static/video/${encodeURIComponent(videoId)}/segments`);
+  if (!resp.ok) return [];
+  return resp.json();
 }
 
 async function fetchCollections(): Promise<CollectionInfo[]> {
@@ -197,12 +261,13 @@ function renderAboutOverlay(): string {
 function renderVideoOverlay(): string {
   if (!activeOverlay) return "";
   const seg = activeOverlay;
+  const active = overlayActiveSegment || seg;
   const ytId = seg.page_url && isYouTube(seg.page_url) ? youtubeVideoId(seg.page_url) : null;
   const startInt = Math.floor(seg.start_seconds);
 
   let playerHtml: string;
   if (ytId) {
-    playerHtml = `<div class="yt-container"><iframe id="yt-iframe" src="https://www.youtube.com/embed/${ytId}?start=${startInt}&autoplay=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></div>`;
+    playerHtml = `<div class="yt-container"><iframe id="yt-iframe" src="https://www.youtube.com/embed/${ytId}?start=${startInt}&autoplay=1&enablejsapi=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></div>`;
   } else {
     playerHtml = `<video id="video-player" controls crossorigin autoplay><source src="${esc(seg.source_url)}" /></video>`;
   }
@@ -215,9 +280,12 @@ function renderVideoOverlay(): string {
         <div class="overlay-info">
           ${seg.collection ? `<div class="overlay-collection">${esc(seg.collection)}</div>` : ""}
           <h2 class="overlay-title">${esc(seg.title)}</h2>
-          ${seg.page_url ? `<a class="overlay-source" href="${esc(seg.page_url)}" target="_blank" rel="noopener">View source</a>` : ""}
-          <div class="overlay-time">${formatTime(seg.start_seconds)} — ${formatTime(seg.end_seconds)}</div>
-          <p class="overlay-transcript">${esc(seg.transcript_raw)}</p>
+          <div class="overlay-actions">
+            ${seg.page_url ? `<a class="overlay-action-btn" href="${esc(seg.page_url)}" target="_blank" rel="noopener">SOURCE</a>` : ""}
+            <a class="overlay-action-btn" href="#" id="overlay-find-similar">SIMILAR</a>
+          </div>
+          <div class="overlay-time" id="overlay-time">${formatTime(active.start_seconds)} — ${formatTime(active.end_seconds)}</div>
+          <p class="overlay-transcript" id="overlay-transcript">${esc(active.transcript_raw)}</p>
           ${seg.context ? `<p class="overlay-context">${esc(seg.context).replace(/\n/g, '<br>')}</p>` : ""}
         </div>
       </div>
@@ -307,6 +375,7 @@ function tiledCards(items: SegmentResult[], cols: number, isSearch: boolean): st
             <div class="card-overlay" data-action="similar" data-segment-id="${seg.segment_id}">
               <span class="card-text">${esc(seg.transcript_raw.slice(0, 120))}${seg.transcript_raw.length > 120 ? "..." : ""}</span>
             </div>
+            <button class="similar-btn" data-action="similar" data-segment-id="${seg.segment_id}">✳</button>
           </div>
         `);
       }
@@ -380,9 +449,13 @@ function centerCanvas() {
 }
 
 function closeOverlay() {
+  if (ytPollInterval != null) { clearInterval(ytPollInterval); ytPollInterval = null; }
+  if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; }
   document.querySelectorAll("video").forEach(v => (v as HTMLVideoElement).pause());
   document.querySelectorAll("iframe").forEach(f => f.remove());
   activeOverlay = null;
+  overlaySegments = [];
+  overlayActiveSegment = null;
   render();
 }
 
@@ -536,12 +609,15 @@ function bindEvents() {
   });
 
   document.querySelectorAll(".card").forEach(card => {
-    card.querySelector("[data-action='play']")?.addEventListener("click", () => {
+    card.querySelector("[data-action='play']")?.addEventListener("click", async () => {
       if (dragMoved) return;
       const idx = parseInt((card as HTMLElement).dataset.idx!);
       const items = displaySegments();
       activeOverlay = items[idx];
+      overlayActiveSegment = activeOverlay;
+      overlaySegments = [];
       render();
+      overlaySegments = await fetchVideoSegments(activeOverlay.video_id);
     });
 
     card.querySelectorAll("[data-action='similar']").forEach(el => {
@@ -566,7 +642,43 @@ function bindEvents() {
     if (videoEl && activeOverlay) {
       const seekTo = activeOverlay.start_seconds;
       videoEl.addEventListener("loadedmetadata", () => { videoEl.currentTime = seekTo; }, { once: true });
+      videoEl.addEventListener("timeupdate", () => updateOverlaySegment(videoEl.currentTime));
     }
+
+    const ytIframe = document.getElementById("yt-iframe");
+    if (!videoEl && ytIframe && activeOverlay) {
+      const startSeconds = activeOverlay.start_seconds;
+      loadYTApi().then(() => {
+        ytPlayer = new YT.Player("yt-iframe", {
+          events: {
+            onReady: (e) => { e.target.seekTo(startSeconds, true); },
+            onStateChange: (e) => {
+              if (ytPollInterval != null) { clearInterval(ytPollInterval); ytPollInterval = null; }
+              if (e.data === YT.PlayerState.PLAYING) {
+                ytPollInterval = window.setInterval(() => {
+                  if (ytPlayer) updateOverlaySegment(ytPlayer.getCurrentTime());
+                }, 500);
+              }
+            },
+          },
+        });
+      });
+    }
+
+    document.getElementById("overlay-find-similar")?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (!overlayActiveSegment) return;
+      const segId = overlayActiveSegment.segment_id;
+      closeOverlay();
+      mode = "similar";
+      query = "";
+      loading = true;
+      render();
+      searchResults = await fetchSimilar(segId);
+      loading = false;
+      render();
+      centerCanvas();
+    });
 
     document.getElementById("overlay")?.addEventListener("click", (e) => {
       if (!(e.target as HTMLElement).closest(".overlay-content")) { closeOverlay(); }
