@@ -1,6 +1,6 @@
 __pycache__/
 .claude
-docs/conversations/
+docs/
 *.pyc
 .env
 *.egg-info/
