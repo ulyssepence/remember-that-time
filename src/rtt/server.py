@@ -56,7 +56,7 @@ def _collect_rtt_files(paths: list[Path]) -> list[Path]:
     result: list[Path] = []
     for p in paths:
         if p.is_dir():
-            result.extend(sorted(p.glob("*.rtt")))
+            result.extend(sorted(p.glob("**/*.rtt")))
         elif p.suffix == ".rtt" and p.exists():
             result.append(p)
     return result

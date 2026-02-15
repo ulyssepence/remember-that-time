@@ -255,7 +255,8 @@ async def process_batch(
                 duration = max(s.end_seconds for s in j.segments) if j.segments else 0.0
                 video = t.Video(
                     video_id=vid, title=j.job.title,
-                    source_url=j.job.page_url or j.job.source_url,
+                    source_url=j.job.source_url,
+                    page_url=j.job.page_url,
                     context=j.job.context or j.job.title,
                     duration_seconds=duration, status="ready",
                     collection=j.job.collection,

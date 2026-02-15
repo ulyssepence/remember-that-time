@@ -42,7 +42,7 @@ def _resolve_local(raw_args: list[str]) -> tuple[list[tuple[Path, str]], list[st
                 local.append((p, ""))
             elif p.is_dir():
                 for ext in VIDEO_EXTS:
-                    for f in sorted(p.glob(f"*{ext}")):
+                    for f in sorted(p.glob(f"**/*{ext}")):
                         local.append((f, ""))
             else:
                 print(f"Warning: skipping {arg} (not a file, directory, or URL)")
@@ -71,13 +71,14 @@ def main():
     p_serve.add_argument("--ollama-url", **ollama_url_kwargs)
 
     p_transcribe = sub.add_parser("transcribe")
-    p_transcribe.add_argument("path", type=Path)
+    p_transcribe.add_argument("paths", nargs="+")
 
     p_enrich = sub.add_parser("enrich")
-    p_enrich.add_argument("path", type=Path)
+    p_enrich.add_argument("paths", nargs="+")
 
     p_embed = sub.add_parser("embed")
-    p_embed.add_argument("path", type=Path)
+    p_embed.add_argument("paths", nargs="+")
+
     p_embed.add_argument("--ollama-url", **ollama_url_kwargs)
 
     p_channel = sub.add_parser("channel", help="List video IDs from a YouTube channel")
@@ -138,33 +139,51 @@ def main():
     elif args.command == "transcribe":
         runtime.require(needs_ffmpeg=True)
         from rtt import transcribe as tr
+        local, _ = _resolve_local(args.paths)
+        if not local:
+            print("No video files found.")
+            sys.exit(1)
         t = tr.WhisperTranscriber()
-        segs = t.transcribe(args.path, args.path.stem)
-        for s in segs:
-            print(f"[{s.start_seconds:.1f}-{s.end_seconds:.1f}] {s.transcript_raw}")
+        for video_path, _ in local:
+            print(f"=== {video_path}")
+            segs = t.transcribe(video_path, video_path.stem)
+            for s in segs:
+                print(f"[{s.start_seconds:.1f}-{s.end_seconds:.1f}] {s.transcript_raw}")
 
     elif args.command == "enrich":
         runtime.require(needs_anthropic=True)
         import json
         from rtt import enrich as en
-        status_path = args.path.parent / f"{args.path.name}.rtt.json"
-        status = json.loads(status_path.read_text())
-        texts = [s["text"] for s in status["segments"]]
+        local, _ = _resolve_local(args.paths)
+        if not local:
+            print("No video files found.")
+            sys.exit(1)
         enricher = en.ClaudeEnricher()
-        enriched = enricher.enrich(args.path.stem, texts)
-        for r, e in zip(texts, enriched):
-            print(f"RAW: {r}\nENRICHED: {e}\n")
+        for video_path, _ in local:
+            print(f"=== {video_path}")
+            status_path = video_path.parent / f"{video_path.name}.rtt.json"
+            status = json.loads(status_path.read_text())
+            texts = [s["text"] for s in status["segments"]]
+            enriched = enricher.enrich(video_path.stem, texts)
+            for r, e in zip(texts, enriched):
+                print(f"RAW: {r}\nENRICHED: {e}\n")
 
     elif args.command == "embed":
         runtime.require(needs_ollama=True)
         from rtt import embed as em
         import json
-        status_path = args.path.parent / f"{args.path.name}.rtt.json"
-        status = json.loads(status_path.read_text())
-        texts = status.get("enriched", [s["text"] for s in status["segments"]])
+        local, _ = _resolve_local(args.paths)
+        if not local:
+            print("No video files found.")
+            sys.exit(1)
         embedder = em.OllamaEmbedder()
-        vecs = embedder.embed_batch(texts)
-        print(f"Embedded {len(vecs)} segments, dim={len(vecs[0])}")
+        for video_path, _ in local:
+            print(f"=== {video_path}")
+            status_path = video_path.parent / f"{video_path.name}.rtt.json"
+            status = json.loads(status_path.read_text())
+            texts = status.get("enriched", [s["text"] for s in status["segments"]])
+            vecs = embedder.embed_batch(texts)
+            print(f"Embedded {len(vecs)} segments, dim={len(vecs[0])}")
 
     elif args.command == "batch":
         runtime.require(
@@ -194,7 +213,7 @@ def main():
                 input_path = Path(inp)
                 raw = []
                 if input_path.is_dir():
-                    for f in sorted(input_path.glob("*.json")):
+                    for f in sorted(input_path.glob("**/*.json")):
                         data = json.loads(f.read_text())
                         raw.extend(data if isinstance(data, list) else [data])
                 else:
