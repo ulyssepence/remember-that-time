@@ -340,8 +340,8 @@ function render() {
     <div class="viewport" id="viewport">
       <div class="canvas" id="canvas" style="width:${totalW}px;height:${totalH}px;transform:translate(${panX}px,${panY}px)">
         ${rawItems.length > 0 ? tiledCards(rawItems, cols, isSearch) : ""}
-        ${loading ? '<div class="loading-indicator"><div class="spinner"></div><div class="loading-text">Searching...</div></div>' : ""}
       </div>
+      ${loading ? '<div class="loading-indicator"><div class="spinner"></div><div class="loading-text">Searching...</div></div>' : ""}
     </div>
     ${renderAboutOverlay()}
     ${renderVideoOverlay()}
