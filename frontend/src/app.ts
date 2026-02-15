@@ -212,11 +212,11 @@ function renderVideoOverlay(): string {
         <button class="close-btn" id="close-overlay">&times;</button>
         <div class="overlay-player">${playerHtml}</div>
         <div class="overlay-info">
+          ${seg.collection ? `<div class="overlay-collection">${esc(seg.collection)}</div>` : ""}
           <h2 class="overlay-title">${esc(seg.title)}</h2>
+          ${seg.page_url ? `<a class="overlay-source" href="${esc(seg.page_url)}" target="_blank" rel="noopener">View source</a>` : ""}
           <div class="overlay-time">${formatTime(seg.start_seconds)} — ${formatTime(seg.end_seconds)}</div>
           <p class="overlay-transcript">${esc(seg.transcript_raw)}</p>
-          ${seg.collection ? `<div class="overlay-collection">${esc(seg.collection)}</div>` : ""}
-          ${seg.page_url ? `<a class="overlay-source" href="${esc(seg.page_url)}" target="_blank" rel="noopener">View source</a>` : ""}
         </div>
       </div>
     </div>
