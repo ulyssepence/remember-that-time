@@ -118,6 +118,7 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
     frontend_index = Path(__file__).parent.parent.parent / "frontend" / "index.html"
 
     _http_client = httpx.Client(follow_redirects=True, timeout=30)
+    _resolved_urls: dict[str, str] = {}
 
     def _to_result(r: dict, score: float = 0.0) -> SegmentResult:
         vid_id = r["video_id"]
@@ -129,7 +130,7 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             segment_id=r["segment_id"],
             start_seconds=r["start_seconds"],
             end_seconds=r["end_seconds"],
-            source_url=f"/video/{vid_id}",
+            source_url=vid_info.get("remote_url") or f"/video/{vid_id}",
             title=vid_info.get("title", ""),
             transcript_raw=r.get("transcript_raw", ""),
             transcript_enriched=r.get("transcript_enriched", ""),
@@ -155,6 +156,24 @@ def create_app(rtt_paths: Path | list[Path], embedder: embed.Embedder | None = N
             media_type="image/jpeg",
             headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
+
+    @app.get("/video/{video_id}/resolve")
+    def resolve_video(video_id: str):
+        vid_info = videos.get(video_id)
+        if not vid_info:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if video_id in _resolved_urls:
+            return {"url": _resolved_urls[video_id]}
+        remote_url = vid_info.get("remote_url")
+        if not remote_url:
+            return {"url": f"/video/{video_id}"}
+        try:
+            resp = httpx.head(remote_url, follow_redirects=True, timeout=10)
+            final = str(resp.url)
+            _resolved_urls[video_id] = final
+            return {"url": final}
+        except Exception:
+            return {"url": f"/video/{video_id}"}
 
     @app.get("/video/{video_id}")
     def video(video_id: str, request: Request):

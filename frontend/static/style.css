@@ -395,6 +395,17 @@ body {
   border-color: #555;
 }
 
+.video-loading {
+  width: 100%;
+  padding-bottom: 56.25%;
+  position: relative;
+}
+.video-loading .spinner {
+  position: absolute;
+  top: calc(50% - 16px);
+  left: calc(50% - 16px);
+}
+
 /* --- Loading spinner --- */
 
 .loading-indicator {

@@ -269,8 +269,10 @@ function renderVideoOverlay(): string {
   let playerHtml: string;
   if (ytId) {
     playerHtml = `<div class="yt-container"><iframe id="yt-iframe" src="https://www.youtube.com/embed/${ytId}?start=${startInt}&autoplay=1&enablejsapi=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe></div>`;
+  } else if (seg.source_url) {
+    playerHtml = `<video id="video-player" controls autoplay><source src="${esc(seg.source_url)}" /></video>`;
   } else {
-    playerHtml = `<video id="video-player" controls crossorigin autoplay><source src="${esc(seg.source_url)}" /></video>`;
+    playerHtml = `<div class="video-loading"><div class="spinner"></div></div>`;
   }
 
   return `
@@ -636,11 +638,19 @@ function bindEvents() {
       if (dragMoved) return;
       const idx = parseInt((card as HTMLElement).dataset.idx!);
       const items = displaySegments();
-      activeOverlay = items[idx];
+      const seg = items[idx];
+      const isYT = seg.page_url && isYouTube(seg.page_url);
+      activeOverlay = { ...seg, source_url: isYT ? seg.source_url : "" };
       overlayActiveSegment = activeOverlay;
       overlaySegments = [];
       render();
-      overlaySegments = await fetchVideoSegments(activeOverlay.video_id);
+      const [resolved] = await Promise.all([
+        isYT ? seg.source_url : fetch(`/video/${encodeURIComponent(seg.video_id)}/resolve`).then(r => r.json()).then(d => d.url as string).catch(() => seg.source_url),
+        fetchVideoSegments(seg.video_id).then(s => { overlaySegments = s; }),
+      ]);
+      if (!activeOverlay) return;
+      activeOverlay.source_url = resolved;
+      render();
     });
 
     card.querySelectorAll("[data-action='similar']").forEach(el => {
