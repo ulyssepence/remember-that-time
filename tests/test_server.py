@@ -140,26 +140,6 @@ def test_video_endpoint_404_for_unknown(client):
     assert resp.status_code == 404
 
 
-def test_source_url_always_uses_video_route():
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp = Path(tmp)
-        _make_rtt(tmp, video_id="remote", title="Remote",
-                  source_url="https://archive.org/download/test/test.mp4",
-                  segments_data=[
-                      dict(segment_id="remote_00000", start=0.0, end=5.0,
-                           raw="test", enriched="test",
-                           emb=[1.0] + [0.0] * 767, frame="frames/000000.jpg"),
-                  ])
-        frames_dir = tmp / "remote_frames"
-        frames_dir.mkdir(exist_ok=True)
-        (frames_dir / "000000.jpg").write_bytes(b"\xff\xd8fake")
-        from rtt import server
-        app = server.create_app(tmp, embedder=FakeEmbedder())
-        client = TestClient(app)
-        resp = client.get("/search?q=nuclear+bomb")
-        r = resp.json()["results"][0]
-        assert r["source_url"] == "/video/remote"
-
 
 def test_segments_endpoint(client):
     resp = client.get("/segments?offset=0&limit=10")

@@ -28,7 +28,8 @@ class Database:
         random.shuffle(tables)
         self._merged = pa.concat_tables(tables)
         emb_col = self._merged.column("text_embedding")
-        self._embeddings = np.array(emb_col.to_pylist(), dtype=np.float32)
+        flat = emb_col.combine_chunks().values.to_numpy(zero_copy_only=False)
+        self._embeddings = flat.astype(np.float32).reshape(-1, 768)
         self._norms = np.linalg.norm(self._embeddings, axis=1, keepdims=True)
         self._norms = np.where(self._norms == 0, 1, self._norms)
         return self._merged
@@ -105,17 +106,23 @@ class Database:
             results.append(row)
         return results
 
+    def compact(self):
+        if self._merged is not None and "text_embedding" in self._merged.schema.names:
+            self._merged = self._merged.drop("text_embedding")
+        self._tables.clear()
+
     def get_segment(self, segment_id: str) -> dict | None:
         table = self._ensure_merged()
         if table is None:
             return None
         col = table.column("segment_id")
-        mask = pyarrow.compute.equal(col, segment_id)
-        filtered = table.filter(mask)
-        if filtered.num_rows == 0:
+        idx = pyarrow.compute.index(col, segment_id).as_py()
+        if idx < 0:
             return None
-        names = filtered.schema.names
-        return {name: filtered.column(name)[0].as_py() for name in names}
+        row = {name: table.column(name)[idx].as_py() for name in table.schema.names}
+        if self._embeddings is not None:
+            row["text_embedding"] = self._embeddings[idx].tolist()
+        return row
 
     def list_segments(self, offset: int = 0, limit: int = 50, collections: list[str] | None = None) -> list[dict]:
         table = self._ensure_merged()

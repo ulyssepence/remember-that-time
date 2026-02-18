@@ -9,9 +9,13 @@ dependencies = [
     "pyarrow>=18",
     "numpy>=1.24",
     "python-dotenv>=1.0",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+pipeline = [
     "anthropic>=0.43",
     "faster-whisper>=1.1",
-    "httpx>=0.28",
     "assemblyai>=0.37",
     "yt-dlp>=2024.0",
     "webvtt-py>=0.5",
